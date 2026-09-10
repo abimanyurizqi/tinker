@@ -1,0 +1,6 @@
+services:
+  payload-studio:
+    build: .
+    ports:
+      - "7701:3000"
+    restart: unless-stopped
