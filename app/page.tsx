@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Binary, Check, ChevronDown, ChevronRight, Clipboard, Code2, Copy, Download, FileCode2, FileJson, Moon, Minimize2, RotateCcw, Sun, Wand2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { AlertTriangle, Binary, Braces, Check, ChevronDown, ChevronRight, Clipboard, Code2, Copy, Download, FileCode2, FileJson, Fingerprint, KeyRound, Moon, Minimize2, RotateCcw, Sun, Wand2 } from 'lucide-react'
 
 type Format = 'JSON' | 'XML'
-type Tool = 'formatter' | 'base64'
+type Tool = 'formatter' | 'base64' | 'jwt' | 'regex'
 type Diagnostic = { message: string; line: number; column: number; position: number }
+type Match = { value: string; index: number }
 
 function loadCache(key: string): string | null {
   try { return window.localStorage.getItem(key) } catch { return null }
@@ -30,6 +31,7 @@ const sampleJson = `{
     ]
   }
 }`
+const sampleJwt = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJUUlgtMjAyNC0wMDk4MSIsIm5hbWUiOiJOYWRpYSBQcmF0YW1hIiwiaWF0IjoxNzI2NzE2ODAwfQ.A5FYhBjXuKBNhbMojljKKVHh9ovpi6EtrQ5n7SfQ8nE`
 
 function beautifyXml(source: string) {
   const compact = source.replace(/>\s*</g, '><').trim()
@@ -79,6 +81,46 @@ function decodeBase64(value: string) {
   return new TextDecoder().decode(bytes)
 }
 
+function decodeJwt(token: string): { header: Record<string, unknown> | null; payload: Record<string, unknown> | null; signature: string; error: string } {
+  const empty = { header: null, payload: null, signature: '', error: '' }
+  const parts = token.trim().split('.')
+  if (parts.length !== 3) return { ...empty, error: 'JWT harus terdiri dari 3 segmen: header.payload.signature' }
+  const base64url = (segment: string) => {
+    const normalized = segment.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+    const bytes = Uint8Array.from(atob(padded), character => character.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  }
+  try {
+    const header = JSON.parse(base64url(parts[0])) as Record<string, unknown>
+    const payload = JSON.parse(base64url(parts[1])) as Record<string, unknown>
+    return { header, payload, signature: parts[2], error: '' }
+  } catch {
+    return { ...empty, error: 'Segmen token bukan base64url / JSON yang valid' }
+  }
+}
+
+function getRegexMatches(pattern: string, flags: string, text: string): { matches: Match[]; error: string } {
+  if (!pattern) return { matches: [], error: '' }
+  try {
+    const regex = new RegExp(pattern, flags)
+    const matches: Match[] = []
+    if (flags.includes('g')) {
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(text)) !== null) {
+        matches.push({ value: match[0], index: match.index })
+        if (match[0] === '') regex.lastIndex += 1
+      }
+    } else {
+      const match = regex.exec(text)
+      if (match) matches.push({ value: match[0], index: match.index })
+    }
+    return { matches, error: '' }
+  } catch (cause) {
+    return { matches: [], error: cause instanceof Error ? cause.message : 'Invalid regex pattern' }
+  }
+}
+
 function getDiagnostic(source: string, format: Format): Diagnostic | null {
   if (!source.trim()) return null
   try {
@@ -122,6 +164,16 @@ function parseXmlTree(source: string): { name: string; value: any } | null {
   return { name: document.documentElement.tagName, value: walk(document.documentElement) }
 }
 
+function AppTool({ theme, setTheme, tool, onSelectTool, toolName, children }: { theme: 'light' | 'dark'; setTheme: (value: 'light' | 'dark') => void; tool: Tool; onSelectTool: (value: Tool) => void; toolName: string; children: ReactNode }) {
+  const items: { id: Tool; label: string; icon?: ReactNode; glyph?: string }[] = [
+    { id: 'formatter', label: 'Formatter', icon: <Code2 size={16}/> },
+    { id: 'base64', label: 'Base64', icon: <Binary size={16}/> },
+    { id: 'jwt', label: 'JWT decoder', glyph: 'JWT' },
+    { id: 'regex', label: 'Regex tester', glyph: '/' },
+  ]
+  return <main className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}><nav className="topbar"><div className="brand"><span className="brand-mark">T</span><span>Tinker</span></div><div className="topbar-tools"><span className="tool-name">{toolName}</span><span className="topbar-divider"/><button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}</button><div className="avatar">D</div></div></nav><div className="workspace"><aside className="sidebar"><div className="sidebar-label">TOOLS</div>{items.map(item => <button key={item.id} className={`tool-item ${tool === item.id ? 'active' : ''}`} onClick={() => onSelectTool(item.id)}>{item.icon || <span className="tool-glyph">{item.glyph}</span>}<span>{item.label}</span></button>)}</aside><section className="content">{children}</section></div></main>
+}
+
 function TreeNode({ name, value, depth = 0 }: { name: string; value: any; depth?: number }) {
   const [open, setOpen] = useState(depth < 2)
   const branch = value && typeof value === 'object'
@@ -147,14 +199,25 @@ export default function Home() {
   const [base64Mode, setBase64Mode] = useState<'encode' | 'decode'>('encode')
   const [base64Input, setBase64Input] = useState('Hello, Tinker')
   const [base64Copied, setBase64Copied] = useState(false)
+  const [jwtInput, setJwtInput] = useState(sampleJwt)
+  const [jwtCopied, setJwtCopied] = useState(false)
+  const [regexPattern, setRegexPattern] = useState('\\b(TRX|ST)-\\d+\\b|\\b\\d{4,}\\b')
+  const [regexFlags, setRegexFlags] = useState('g')
+  const [regexText, setRegexText] = useState('Order TRX-2024-001 and ST-1001 shipped. Total 125000 IDR.\nReferensi: TRX-2024-00812')
   useEffect(() => {
     const raw = loadCache('tinker:drafts')
     if (raw) { try { const parsed = JSON.parse(raw); setDrafts({ JSON: typeof parsed.JSON === 'string' ? parsed.JSON : sampleJson, XML: typeof parsed.XML === 'string' ? parsed.XML : sampleXml }) } catch { /* ignore */ } }
     if (loadCache('tinker:format') === 'XML') setFormat('XML')
     if (loadCache('tinker:tool') === 'base64') setTool('base64')
+    if (loadCache('tinker:tool') === 'jwt') setTool('jwt')
+    if (loadCache('tinker:tool') === 'regex') setTool('regex')
     if (loadCache('tinker:theme') === 'light') setTheme('light')
     if (loadCache('tinker:b64mode') === 'decode') setBase64Mode('decode')
     setBase64Input(loadCache('tinker:b64input') ?? 'Hello, Tinker')
+    setJwtInput(loadCache('tinker:jwt') ?? sampleJwt)
+    setRegexPattern(loadCache('tinker:regexpattern') ?? '\\b(TRX|ST)-\\d+\\b|\\b\\d{4,}\\b')
+    setRegexFlags(loadCache('tinker:regexflags') ?? 'g')
+    setRegexText(loadCache('tinker:regextext') ?? 'Order TRX-2024-001 and ST-1001 shipped. Total 125000 IDR.\nReferensi: TRX-2024-00812')
   }, [])
   useEffect(() => saveCache('tinker:drafts', JSON.stringify(drafts)), [drafts])
   useEffect(() => saveCache('tinker:format', format), [format])
@@ -162,6 +225,10 @@ export default function Home() {
   useEffect(() => saveCache('tinker:theme', theme), [theme])
   useEffect(() => saveCache('tinker:b64mode', base64Mode), [base64Mode])
   useEffect(() => saveCache('tinker:b64input', base64Input), [base64Input])
+  useEffect(() => saveCache('tinker:jwt', jwtInput), [jwtInput])
+  useEffect(() => saveCache('tinker:regexpattern', regexPattern), [regexPattern])
+  useEffect(() => saveCache('tinker:regexflags', regexFlags), [regexFlags])
+  useEffect(() => saveCache('tinker:regextext', regexText), [regexText])
   const diagnostic = useMemo(() => getDiagnostic(input, format), [input, format])
   const treeRoot = useMemo(() => { try { return format === 'JSON' ? { name: 'root', value: JSON.parse(input) } : parseXmlTree(input) } catch { return null } }, [input, format])
   const pretty = () => { try { if (format === 'JSON') setInput(JSON.stringify(JSON.parse(input), null, 2)); else setInput(beautifyXml(input)); } catch { /* diagnostic is live */ } }
@@ -172,12 +239,28 @@ export default function Home() {
     catch { return { value: '', error: base64Mode === 'decode' ? 'Invalid Base64 input' : 'Unable to encode input' } }
   }, [base64Input, base64Mode])
   const copyBase64 = async () => { await navigator.clipboard?.writeText(base64Result.value); setBase64Copied(true); setTimeout(() => setBase64Copied(false), 1500) }
+  const jwtDecoded = useMemo(() => decodeJwt(jwtInput), [jwtInput])
+  const copyJwt = async () => { if (!jwtDecoded.error) await navigator.clipboard?.writeText(JSON.stringify({ header: jwtDecoded.header, payload: jwtDecoded.payload }, null, 2)); setJwtCopied(true); setTimeout(() => setJwtCopied(false), 1500) }
+  const regexResult = useMemo(() => getRegexMatches(regexPattern, regexFlags, regexText), [regexPattern, regexFlags, regexText])
+  const regexPreview = useMemo(() => {
+    if (regexResult.error || !regexText) return null
+    const nodes: ReactNode[] = []
+    let last = 0
+    regexResult.matches.forEach((match, index) => {
+      nodes.push(regexText.slice(last, match.index))
+      nodes.push(<mark key={index} className="match-hl">{regexText.slice(match.index, match.index + match.value.length)}</mark>)
+      last = match.index + match.value.length
+    })
+    nodes.push(regexText.slice(last))
+    return nodes
+  }, [regexResult, regexText])
+  const toggleFlag = (flag: string) => setRegexFlags(prev => prev.includes(flag) ? prev.replace(flag, '') : prev + flag)
   const lines = input.split('\n')
   const editorLines = lines.map((line, index) => <div key={index} className={`code-line ${diagnostic?.line === index + 1 ? 'line-error' : ''}`} dangerouslySetInnerHTML={{ __html: highlightLine(line || ' ', format) }} />)
-  if ((tool as string) === 'base64') return <main className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}><nav className="topbar"><div className="brand"><span className="brand-mark">T</span><span>Tinker</span></div><div className="topbar-tools"><span className="tool-name">Base64</span><span className="topbar-divider"/><button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}</button><div className="avatar">D</div></div></nav><div className="workspace"><aside className="sidebar"><div className="sidebar-label">TOOLS</div><button className="tool-item" onClick={() => setTool('formatter')}><Code2 size={16}/><span>Formatter</span></button><button className="tool-item active"><Binary size={16}/><span>Base64</span></button><button className="tool-item"><span className="tool-glyph">JWT</span><span>JWT decoder</span><span className="soon">Soon</span></button><button className="tool-item"><span className="tool-glyph">/</span><span>Regex tester</span><span className="soon">Soon</span></button></aside><section className="content"><div className="content-head"><div><h1>Base64 Encoder / Decoder</h1></div><div className="format-switch"><button className={base64Mode === 'encode' ? 'selected' : ''} onClick={() => setBase64Mode('encode')}>Encode</button><button className={base64Mode === 'decode' ? 'selected' : ''} onClick={() => setBase64Mode('decode')}>Decode</button></div></div><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><Binary size={16}/><h2>Input</h2><span className="format-label">{base64Mode === 'encode' ? 'TEXT' : 'BASE64'}</span></div><button className="quiet-button" onClick={() => setBase64Input('')} aria-label="Clear input"><RotateCcw size={14}/></button></div><div className="plain-editor-wrap"><textarea value={base64Input} onChange={event => setBase64Input(event.target.value)} className="plain-editor" spellCheck={false} aria-label="Base64 input" placeholder={base64Mode === 'encode' ? 'Type text to encode' : 'Paste Base64 to decode'}/></div><div className="panel-foot"><span className="meta-text">{base64Input.length} characters</span></div></section><section className="panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Result</h2></div><button className="quiet-button" onClick={copyBase64}>{base64Copied ? <Check size={14}/> : <Copy size={14}/>} {base64Copied ? 'Copied' : 'Copy'}</button></div><div className="result-body">{base64Result.error ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>{base64Result.error}</strong><p>Check the input and try again.</p></div></div> : <pre className="raw-view">{base64Result.value}</pre>}</div><div className="panel-foot"><span className={`status-dot ${base64Result.error ? 'error' : ''}`}/><span className="meta-text">{base64Result.error ? 'Invalid input' : 'Ready'}</span></div></section></div></section></div></main>
-  return <main className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}><nav className="topbar"><div className="brand"><span className="brand-mark">T</span><span>Tinker</span></div><div className="topbar-tools"><span className="tool-name">Formatter</span><span className="topbar-divider"/><button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={16}/> : <Moon size={16}/>}</button><div className="avatar">D</div></div></nav>
-  <div className="workspace"><aside className="sidebar"><div className="sidebar-label">TOOLS</div><button className={`tool-item ${tool === 'formatter' ? 'active' : ''}`} onClick={() => setTool('formatter')}><Code2 size={16}/><span>Formatter</span></button><button className={`tool-item ${tool === 'base64' ? 'active' : ''}`} onClick={() => setTool('base64')}><Binary size={16}/><span>Base64</span></button><button className="tool-item"><span className="tool-glyph">JWT</span><span>JWT decoder</span><span className="soon">Soon</span></button><button className="tool-item"><span className="tool-glyph">/</span><span>Regex tester</span><span className="soon">Soon</span></button></aside>
-  <section className="content"><div className="content-head"><div><h1>JSON & XML Formatter</h1></div></div>
-  <div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Editor</h2><span className="format-label">{format}</span></div><div className="panel-actions"><div className="format-switch"><button className={format === 'JSON' ? 'selected' : ''} onClick={() => setFormat('JSON')}><FileJson size={15}/> JSON</button><button className={format === 'XML' ? 'selected' : ''} onClick={() => setFormat('XML')}><FileCode2 size={15}/> XML</button></div><span className="meta-text">{input.length} characters</span>{diagnostic && <span className="error-inline">Line {diagnostic.line}, col {diagnostic.column}</span>}<button className="quiet-button" onClick={() => setInput('')} aria-label="Clear editor"><RotateCcw size={14}/></button><button className="outline-button" onClick={minify}><Minimize2 size={14}/> Minify</button><button className="primary-button" onClick={pretty}><Wand2 size={14}/> Beautify</button></div></div><div className="editor-wrap"><div className="line-numbers">{lines.map((_, i) => <span key={i} className={diagnostic?.line === i + 1 ? 'number-error' : ''}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{editorLines}</pre><textarea spellCheck={false} value={input} onChange={e => setInput(e.target.value)} onScroll={e => { const t = e.currentTarget; const overlay = t.previousElementSibling as HTMLElement | null; const gutter = t.parentElement?.previousElementSibling as HTMLElement | null; if (overlay) { overlay.scrollTop = t.scrollTop; overlay.scrollLeft = t.scrollLeft } if (gutter) gutter.scrollTop = t.scrollTop }} className="editor" wrap="soft" aria-label={`${format} editor`}/></div></div></section>
-  <section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Inspector</h2></div><div className="panel-actions"><button className="quiet-button" onClick={copy}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy'}</button><button className="quiet-button icon-only" aria-label="Download"><Download size={14}/></button></div></div><div className="tabs"><button className={activeTab === 'tree' ? 'active' : ''} onClick={() => setActiveTab('tree')}>Tree</button><button className={activeTab === 'raw' ? 'active' : ''} onClick={() => setActiveTab('raw')}>Raw</button></div><div className="inspector-body">{diagnostic ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>Unable to parse {format}</strong><p>{diagnostic.message}</p><button onClick={() => { setActiveTab('raw'); document.querySelector<HTMLTextAreaElement>('.editor')?.focus() }}>Go to line {diagnostic.line}<span>:{diagnostic.column}</span></button></div></div> : activeTab === 'tree' ? treeRoot ? <TreeNode name={treeRoot.name} value={treeRoot.value}/> : <div className="empty-state">Enter a valid {format} payload</div> : <pre className="raw-view">{input}</pre>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${diagnostic ? 'error' : ''}`}/><span className="meta-text">{diagnostic ? `Invalid ${format}` : `Valid ${format}`}</span></div></section></div></section></div></main>
+  if (tool === 'base64') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool} toolName="Base64"><div className="content-head"><div><h1>Base64 Encoder / Decoder</h1></div><div className="format-switch"><button className={base64Mode === 'encode' ? 'selected' : ''} onClick={() => setBase64Mode('encode')}>Encode</button><button className={base64Mode === 'decode' ? 'selected' : ''} onClick={() => setBase64Mode('decode')}>Decode</button></div></div><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><Binary size={16}/><h2>Input</h2><span className="format-label">{base64Mode === 'encode' ? 'TEXT' : 'BASE64'}</span></div><button className="quiet-button" onClick={() => setBase64Input('')} aria-label="Clear input"><RotateCcw size={14}/></button></div><div className="plain-editor-wrap"><textarea value={base64Input} onChange={event => setBase64Input(event.target.value)} className="plain-editor" spellCheck={false} aria-label="Base64 input" placeholder={base64Mode === 'encode' ? 'Type text to encode' : 'Paste Base64 to decode'}/></div><div className="panel-foot"><span className="meta-text">{base64Input.length} characters</span></div></section><section className="panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Result</h2></div><button className="quiet-button" onClick={copyBase64}>{base64Copied ? <Check size={14}/> : <Copy size={14}/>} {base64Copied ? 'Copied' : 'Copy'}</button></div><div className="result-body">{base64Result.error ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>{base64Result.error}</strong><p>Check the input and try again.</p></div></div> : <pre className="raw-view">{base64Result.value}</pre>}</div><div className="panel-foot"><span className={`status-dot ${base64Result.error ? 'error' : ''}`}/><span className="meta-text">{base64Result.error ? 'Invalid input' : 'Ready'}</span></div></section></div></AppTool>
+  if (tool === 'jwt') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool} toolName="JWT"><div className="content-head"><div><h1>JWT Decoder</h1></div></div><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><KeyRound size={16}/><h2>Token</h2></div><button className="quiet-button" onClick={() => setJwtInput('')} aria-label="Clear token"><RotateCcw size={14}/></button></div><div className="plain-editor-wrap"><textarea value={jwtInput} onChange={event => setJwtInput(event.target.value)} className="plain-editor" spellCheck={false} aria-label="JWT token" placeholder="Paste a JWT token here"/></div><div className="panel-foot"><span className="meta-text">{jwtInput.length} characters</span></div></section><section className="panel"><div className="panel-head"><div className="panel-title"><Fingerprint size={16}/><h2>Decoded</h2></div><button className="quiet-button" onClick={copyJwt}>{jwtCopied ? <Check size={14}/> : <Copy size={14}/>} {jwtCopied ? 'Copied' : 'Copy'}</button></div><div className="inspector-body">{jwtDecoded.error ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>Unable to decode JWT</strong><p>{jwtDecoded.error}</p></div></div> : <><div className="section-label">HEADER</div><pre className="raw-view">{JSON.stringify(jwtDecoded.header, null, 2)}</pre><div className="section-label">PAYLOAD</div><pre className="raw-view">{JSON.stringify(jwtDecoded.payload, null, 2)}</pre><div className="section-label">SIGNATURE</div><div className="sig-text">{jwtDecoded.signature}</div></>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${jwtDecoded.error ? 'error' : ''}`}/><span className="meta-text">{jwtDecoded.error ? 'Invalid token' : 'Valid JWT structure'}</span></div></section></div></AppTool>
+  if (tool === 'regex') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool} toolName="Regex"><div className="content-head"><div><h1>Regex Tester</h1></div></div><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><Braces size={16}/><h2>Pattern</h2><span className="format-label">/{regexPattern}/{regexFlags}</span></div><button className="quiet-button" onClick={() => setRegexPattern('')} aria-label="Clear pattern"><RotateCcw size={14}/></button></div><div className="regex-inputs"><input className="plain-input" value={regexPattern} onChange={event => setRegexPattern(event.target.value)} spellCheck={false} aria-label="Regex pattern" placeholder="Enter regex pattern"/><div className="flag-row">{[['g','Global'],['i','Ignore case'],['m','Multiline'],['s','Dotall'],['u','Unicode'],['y','Sticky']].map(([flag, label]) => <button key={flag} className={`flag-button ${regexFlags.includes(flag) ? 'on' : ''}`} onClick={() => toggleFlag(flag)}>{label}</button>)}</div></div><div className="panel-head"><div className="panel-title"><Braces size={16}/><h2>Test string</h2></div><button className="quiet-button" onClick={() => setRegexText('')} aria-label="Clear test string"><RotateCcw size={14}/></button></div><div className="plain-editor-wrap"><textarea value={regexText} onChange={event => setRegexText(event.target.value)} className="plain-editor" spellCheck={false} aria-label="Test string"/></div><div className="panel-foot"><span className="meta-text">{regexText.length} characters</span></div></section><section className="panel"><div className="panel-head"><div className="panel-title"><Check size={16}/><h2>Matches</h2></div></div><div className="inspector-body">{regexResult.error ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>Invalid regex</strong><p>{regexResult.error}</p></div></div> : regexText ? <><div className="match-summary">{regexResult.matches.length} match{regexResult.matches.length === 1 ? '' : 'es'}</div><pre className="raw-view match-preview">{regexPreview}</pre>{regexResult.matches.map((match, index) => <div key={index} className="match-row"><span className="match-index">#{index + 1} · {match.index}</span><span className="match-value">{match.value}</span></div>)}</> : <div className="empty-state">Enter text to scan</div>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${regexResult.error ? 'error' : ''}`}/><span className="meta-text">{regexResult.error ? 'Invalid pattern' : regexResult.matches.length ? `${regexResult.matches.length} found` : 'No matches'}</span></div></section></div></AppTool>
+  return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool} toolName="Formatter"><div className="content-head"><div><h1>JSON & XML Formatter</h1></div></div>
+  <div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Editor</h2><span className="format-label">{format}</span></div><div className="panel-actions"><div className="format-switch"><button className={format === 'JSON' ? 'selected' : ''} onClick={() => setFormat('JSON')}><FileJson size={15}/> JSON</button><button className={format === 'XML' ? 'selected' : ''} onClick={() => setFormat('XML')}><FileCode2 size={15}/> XML</button></div><button className="quiet-button" onClick={() => setInput('')} aria-label="Clear editor"><RotateCcw size={14}/></button><button className="outline-button" onClick={minify}><Minimize2 size={14}/> Minify</button><button className="primary-button" onClick={pretty}><Wand2 size={14}/> Beautify</button></div></div><div className="editor-wrap"><div className="line-numbers">{lines.map((_, i) => <span key={i} className={diagnostic?.line === i + 1 ? 'number-error' : ''}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{editorLines}</pre><textarea spellCheck={false} value={input} onChange={e => setInput(e.target.value)} onScroll={e => { const t = e.currentTarget; const overlay = t.previousElementSibling as HTMLElement | null; const gutter = t.parentElement?.previousElementSibling as HTMLElement | null; if (overlay) { overlay.scrollTop = t.scrollTop; overlay.scrollLeft = t.scrollLeft } if (gutter) gutter.scrollTop = t.scrollTop }} className="editor" wrap="soft" aria-label={`${format} editor`}/></div></div><div className="panel-foot"><span className="meta-text">{input.length} characters</span>{diagnostic && <span className="error-inline">Line {diagnostic.line}, col {diagnostic.column}</span>}</div></section>
+  <section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16}/><h2>Inspector</h2></div><div className="panel-actions"><button className="quiet-button" onClick={copy}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy'}</button><button className="quiet-button icon-only" aria-label="Download"><Download size={14}/></button></div></div><div className="tabs"><button className={activeTab === 'tree' ? 'active' : ''} onClick={() => setActiveTab('tree')}>Tree</button><button className={activeTab === 'raw' ? 'active' : ''} onClick={() => setActiveTab('raw')}>Raw</button></div><div className="inspector-body">{diagnostic ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16}/></div><div><strong>Unable to parse {format}</strong><p>{diagnostic.message}</p><button onClick={() => { setActiveTab('raw'); document.querySelector<HTMLTextAreaElement>('.editor')?.focus() }}>Go to line {diagnostic.line}<span>:{diagnostic.column}</span></button></div></div> : activeTab === 'tree' ? treeRoot ? <TreeNode name={treeRoot.name} value={treeRoot.value}/> : <div className="empty-state">Enter a valid {format} payload</div> : <pre className="raw-view">{input}</pre>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${diagnostic ? 'error' : ''}`}/><span className="meta-text">{diagnostic ? `Invalid ${format}` : `Valid ${format}`}</span></div></section></div></AppTool>
 }

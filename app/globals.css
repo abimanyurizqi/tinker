@@ -6,9 +6,9 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif; }
 button, textarea { font: inherit; }
-.app-shell { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; --bg: #101010; --surface: #171717; --surface-2: #1d1d1d; --surface-3: #242424; --border: #303030; --border-soft: #252525; --text: #e8e6e1; --muted: #8e8b84; --faint: #63615c; --accent: #ec8b44; --accent-soft: rgba(236,139,68,.14); --error: #f07178; --editor: #111111; }
-.app-shell.theme-light { --bg: #f4f3f1; --surface: #ffffff; --surface-2: #faf9f7; --surface-3: #f0efed; --border: #dedcd7; --border-soft: #e9e7e3; --text: #282725; --muted: #78746e; --faint: #aaa59e; --accent: #d9661f; --accent-soft: rgba(217,102,31,.11); --error: #c23a42; --editor: #fbfaf8; color-scheme: light; }
-.topbar { align-items: center; background: color-mix(in srgb, var(--surface) 92%, transparent); border-bottom: 1px solid var(--border-soft); display: flex; height: 60px; justify-content: space-between; padding: 0 28px; }
+.app-shell { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; --bg: #101010; --surface: #171717; --surface-2: #1d1d1d; --surface-3: #242424; --border: #303030; --border-soft: #252525; --text: #e8e6e1; --muted: #8e8b84; --faint: #63615c; --accent: #ec8b44; --accent-soft: rgba(236,139,68,.14); --error: #f07178; --editor: #111111; --editor-fg: #c8c4bc; }
+.app-shell.theme-light { --bg: #f5f4f2; --surface: #ffffff; --surface-2: #fcfbf9; --surface-3: #ece9e3; --border: #d4cfc6; --border-soft: #e0dcd4; --text: #1d1c19; --muted: #54504a; --faint: #817b70; --accent: #c04f0e; --accent-soft: rgba(192,79,14,.12); --error: #b3261e; --editor: #fdfcfb; --editor-fg: #2b2a26; color-scheme: light; }
+.topbar { align-items: center; backdrop-filter: blur(10px); background: color-mix(in srgb, var(--surface) 92%, transparent); border-bottom: 1px solid var(--border-soft); display: flex; flex-shrink: 0; height: 60px; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 40; }
 .brand { align-items: center; color: var(--text); display: flex; font-size: 16px; font-weight: 700; gap: 9px; letter-spacing: -.02em; }
 .brand-mark { align-items: center; background: var(--accent); border-radius: 7px; color: #fff; display: inline-flex; font-size: 13px; height: 25px; justify-content: center; width: 25px; }
 .topbar-tools { align-items: center; display: flex; gap: 15px; }
@@ -49,7 +49,7 @@ button, textarea { font: inherit; }
 .line-numbers .number-error { color: var(--error); font-weight: 700; }
 .code-editor { flex: 1; min-width: 0; overflow: hidden; position: relative; }
 .code-editor pre, .editor { font: 12px/24px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 0; margin: 0; padding: 18px 18px; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-.code-editor pre { color: #c8c4bc; inset: 0; overflow: hidden; pointer-events: none; position: absolute; }
+.code-editor pre { color: var(--editor-fg); inset: 0; overflow: hidden; pointer-events: none; position: absolute; }
 .code-line { min-height: 24px; min-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
 .code-line.line-error { background: color-mix(in srgb, var(--error) 13%, transparent); border-left: 2px solid var(--error); margin-left: -2px; }
 .editor { background: transparent; border: 0; caret-color: var(--accent); color: transparent; height: 100%; outline: none; overflow: auto; position: relative; resize: none; width: 100%; z-index: 2; }
@@ -59,8 +59,8 @@ button, textarea { font: inherit; }
 .editor::-webkit-scrollbar-thumb:hover, .inspector-body::-webkit-scrollbar-thumb:hover, .plain-editor::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 .editor::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .hl-key { color: #78b8d8; font-weight: 700; } .hl-string { color: #91bd85; } .hl-number { color: #d6ad72; } .hl-bool { color: #be9bd2; font-weight: 600; } .hl-null { color: #cf94aa; } .hl-tag { color: #c994c5; font-weight: 700; } .hl-attr { color: #d6ad72; }
-.theme-light .hl-key { color: #397ba1; } .theme-light .hl-string { color: #3f8052; } .theme-light .hl-number, .theme-light .hl-attr { color: #a35f16; } .theme-light .hl-bool { color: #80529b; } .theme-light .hl-null, .theme-light .hl-tag { color: #9d4d72; }
-.panel-foot { align-items: center; border-top: 1px solid var(--border-soft); display: flex; gap: 10px; min-height: 54px; padding: 0 16px; }
+.theme-light .hl-key { color: #1656a8; } .theme-light .hl-string { color: #1c7033; } .theme-light .hl-number, .theme-light .hl-attr { color: #9c4a09; } .theme-light .hl-bool { color: #6f3d88; } .theme-light .hl-null, .theme-light .hl-tag { color: #a03a5f; } .theme-light .key { color: #1656a8; } .theme-light .string { color: #1c7033; } .theme-light .number { color: #9c4a09; } .theme-light .null { color: #a03a5f; }
+.panel-foot { align-items: center; border-top: 1px solid var(--border-soft); display: flex; flex-shrink: 0; gap: 10px; min-height: 40px; padding: 0 14px; }
 .meta-text { color: var(--faint); font-size: 11px; }
 .error-inline { color: var(--error); font-size: 11px; }
 .panel-buttons { display: flex; gap: 7px; margin-left: auto; }
@@ -76,3 +76,13 @@ button, textarea { font: inherit; }
 @media (max-width: 960px) { .app-shell { height: auto; overflow: auto; } .workspace { flex-direction: column; height: auto; } .sidebar { border-bottom: 1px solid var(--border-soft); border-right: 0; display: flex; flex-direction: row; gap: 4px; overflow-x: auto; padding: 8px 14px; width: 100%; } .sidebar-label { display: none; } .tool-item { flex: 0 0 auto; width: auto; white-space: nowrap; } .tool-item .soon { display: none; } .content { padding: 16px 18px 24px; } .panels { flex: none; grid-auto-rows: auto; grid-template-columns: 1fr; } .panel { height: auto; min-height: 540px; } }
 
 .plain-editor-wrap { background: var(--editor); display: flex; flex: 1; min-height: 0; } .plain-editor { background: transparent; border: 0; color: var(--text); flex: 1; font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 450px; outline: none; padding: 20px; resize: none; white-space: pre-wrap; overflow-wrap: anywhere; } .plain-editor::placeholder { color: var(--faint); } .result-body { background: var(--editor); flex: 1; min-height: 0; overflow: auto; padding: 20px; } .result-body .raw-view { color: var(--text); font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.section-label { color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .12em; margin: 18px 0 6px; }
+.sig-text { color: var(--muted); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.regex-inputs { flex-shrink: 0; }
+.plain-input { background: var(--editor); border: 0; border-bottom: 1px solid var(--border-soft); color: var(--text); font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 0; outline: none; padding: 16px 20px; width: 100%; } .plain-input::placeholder { color: var(--faint); }
+.flag-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 20px 14px; }
+.flag-button { background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); cursor: pointer; font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 9px; } .flag-button:hover { color: var(--text); } .flag-button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.match-summary { color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .08em; margin-bottom: 8px; }
+.match-preview { color: var(--text) !important; margin-bottom: 12px; }
+.match-hl { background: color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 3px; color: inherit; padding: 0 1px; }
+.match-row { border-bottom: 1px solid var(--border-soft); color: var(--muted); display: flex; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; gap: 10px; padding: 7px 5px; } .match-index { color: var(--faint); flex-shrink: 0; } .match-value { color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
