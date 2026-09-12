@@ -19,7 +19,10 @@ function usePersist<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>
   useEffect(() => {
     const raw = loadCache(key)
     if (raw == null) return
-    try { setValue(JSON.parse(raw) as T) } catch { setValue(raw as unknown as T) }
+    try {
+      const parsed = JSON.parse(raw)
+      setValue((typeof initial === 'string' ? raw : parsed) as T)
+    } catch { setValue(raw as unknown as T) }
   }, [key])
   useEffect(() => {
     const stored = typeof value === 'string' ? value : JSON.stringify(value)
