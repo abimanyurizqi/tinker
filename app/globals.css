@@ -97,3 +97,22 @@ button, textarea { font: inherit; }
 .toolbar { align-items: center; display: flex; flex-shrink: 0; gap: 8px; margin: 16px auto 0; max-width: 1400px; width: 100%; }
 .toolbar-spacer { flex: 1; }
 .toolbar .meta-text { margin-left: 4px; }
+
+.sidebar-group { margin-top: 6px; }
+.sidebar-group-toggle { align-items: center; background: transparent; border: 0; border-radius: 7px; color: var(--faint); cursor: pointer; display: flex; font-size: 10px; font-weight: 700; gap: 6px; letter-spacing: .12em; margin: 0 10px 4px; padding: 4px 0; width: calc(100% - 20px); }
+.sidebar-group-toggle:hover { color: var(--muted); }
+.sidebar-group-toggle span:first-child { flex: 1; text-align: left; }
+
+.find-replace-bar { background: var(--surface-2); border-bottom: 1px solid var(--border-soft); padding: 8px 12px; position: absolute; right: 0; top: 0; z-index: 10; border-radius: 0 0 0 8px; min-width: 340px; }
+.find-row { align-items: center; display: flex; gap: 6px; margin-bottom: 6px; }
+.find-row:last-child { margin-bottom: 0; }
+.find-glyph { color: var(--faint); flex-shrink: 0; }
+.find-input { background: var(--editor); border: 1px solid var(--border); border-radius: 5px; color: var(--text); flex: 1; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 0; outline: none; padding: 5px 8px; }
+.find-input:focus { border-color: var(--accent); }
+.find-count { color: var(--faint); font-size: 11px; min-width: 40px; text-align: right; }
+.find-icon-btn { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--muted); cursor: pointer; display: inline-flex; justify-content: center; padding: 4px; }
+.find-icon-btn:hover { background: var(--surface-3); color: var(--text); }
+.find-icon-btn.on { background: var(--accent-soft); color: var(--accent); }
+.find-text-btn { background: var(--surface-3); border: 1px solid var(--border); border-radius: 5px; color: var(--muted); cursor: pointer; font-size: 11px; padding: 4px 10px; white-space: nowrap; }
+.find-text-btn:hover { border-color: var(--accent); color: var(--text); }
+.find-text-btn:disabled { opacity: 0.5; cursor: default; }

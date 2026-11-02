@@ -1,13 +1,15 @@
 'use client'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction, type UIEvent } from 'react'
 import dynamic from 'next/dynamic'
-import { AlertTriangle, ArrowLeftRight, Binary, Boxes, Braces, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Code2, Coffee, Copy, Database, Dices, Download, FileCode2, FileDiff, FileJson, FileText, Fingerprint, Hash, KeyRound, Link, List, Moon, Minimize2, RotateCcw, Scissors, ShieldCheck, Sun, Table, Terminal, Wand2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Binary, Boxes, Braces, CaseSensitive, Check, ChevronDown, ChevronRight, ChevronUp, Clock, Code2, Coffee, Copy, Database, Dices, Download, FileCode2, FileDiff, FileJson, FileText, Fingerprint, Hash, KeyRound, Link, List, Moon, Minimize2, Regex, RotateCcw, Scissors, ShieldCheck, Sun, Table, Terminal, Wand2, Search, Replace, X } from 'lucide-react'
 
 const MonacoDiff = dynamic(() => import('./MonacoDiff'), { ssr: false })
 
 type Format = 'JSON' | 'XML'
-type Tool = 'formatter' | 'base64' | 'jwt' | 'regex' | 'compare' | 'clean' | 'timestamp' | 'sql' | 'plsql' | 'jsondiff' | 'xmldiff' | 'j2ts' | 'j2java' | 'j2kt' | 'yaml' | 'jsonxml' | 'csv' | 'curl' | 'url' | 'headers' | 'hash' | 'hmac' | 'cert' | 'uuid' | 'randstr' | 'mock'
+type Tool = 'formatter' | 'base64' | 'jwt' | 'regex' | 'compare' | 'clean' | 'timestamp' | 'sql' | 'jsondiff' | 'xmldiff' | 'j2ts' | 'j2java' | 'j2kt' | 'yaml' | 'jsonxml' | 'csv' | 'curl' | 'url' | 'headers' | 'hash' | 'hmac' | 'cert' | 'uuid' | 'randstr' | 'mock'
 type Diagnostic = { message: string; line: number; column: number; position: number }
+
+type FindReplaceState = { findText: string; replaceText: string; caseSensitive: boolean; regex: boolean; visible: boolean }
 type Match = { value: string; index: number }
 
 function loadCache(key: string): string | null {
@@ -72,7 +74,6 @@ const sampleXmlB = `<transaction><id>TRX-2024-00982</id><status>failed</status><
 
 const sampleJwt = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJUUlgtMjAyNC0wMDk4MSIsIm5hbWUiOiJOYWRpYSBQcmF0YW1hIiwiaWF0IjoxNzI2NzE2ODAwfQ.A5FYhBjXuKBNhbMojljKKVHh9ovpi6EtrQ5n7SfQ8nE`
 const sampleSql = `select t.id, t.amount, t.status from transactions t where t.status = 'success' and t.amount > 1000 order by t.created_at desc;`
-const samplePlsql = `declare v_total number; begin select sum(amount) into v_total from transactions; if v_total > 0 then dbms_output.put_line('Total: ' || v_total); else dbms_output.put_line('No rows'); end if; end;`
 
 const sampleYaml = `transaction:
   id: TRX-2024-00981
@@ -829,8 +830,106 @@ function xmlToJsonSource(source: string): string {
   return JSON.stringify({ [tree.name]: tree.value }, null, 2)
 }
 
+
+type FindMatch = { index: number; length: number }
+
+function findMatches(text: string, query: string, caseSensitive: boolean, useRegex: boolean): FindMatch[] {
+  if (!query) return []
+  const result: FindMatch[] = []
+  if (useRegex) {
+    try {
+      const re = new RegExp(query, caseSensitive ? 'g' : 'gi')
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text)) !== null) {
+        result.push({ index: m.index, length: m[0].length })
+        if (m[0].length === 0) re.lastIndex++
+        if (result.length > 5000) break
+      }
+    } catch { return [] }
+  } else {
+    const hay = caseSensitive ? text : text.toLowerCase()
+    const needle = caseSensitive ? query : query.toLowerCase()
+    let from = 0
+    while (true) {
+      const idx = hay.indexOf(needle, from)
+      if (idx === -1) break
+      result.push({ index: idx, length: needle.length })
+      from = idx + needle.length
+    }
+  }
+  return result
+}
+
+function FindReplaceBar({ value, onChange, state, setState, getTarget, lineHeight }: { value: string; onChange: (v: string) => void; state: FindReplaceState; setState: (s: FindReplaceState) => void; getTarget: () => HTMLTextAreaElement | null; lineHeight: number }) {
+  const [active, setActive] = useState(0)
+  const matches = useMemo(() => findMatches(value, state.findText, state.caseSensitive, state.regex), [value, state.findText, state.caseSensitive, state.regex])
+  useEffect(() => { if (active >= matches.length) setActive(matches.length > 0 ? matches.length - 1 : 0) }, [matches.length])
+
+  const reveal = (idx: number) => {
+    const el = getTarget()
+    if (!el || !matches.length) return
+    const i = ((idx % matches.length) + matches.length) % matches.length
+    const m = matches[i]
+    el.focus()
+    el.setSelectionRange(m.index, m.index + m.length)
+    const before = value.slice(0, m.index)
+    const line = before.split('\n').length - 1
+    el.scrollTop = Math.max(0, line * lineHeight - el.clientHeight / 2 + lineHeight / 2)
+    setActive(i)
+  }
+
+  const replaceCurrent = () => {
+    const el = getTarget()
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    if (start === end) { reveal(active); return }
+    const selected = value.slice(start, end)
+    const newText = value.slice(0, start) + state.replaceText + value.slice(end)
+    onChange(newText)
+    void selected
+    setTimeout(() => { const e = getTarget(); if (e) { e.focus(); e.setSelectionRange(start, start + state.replaceText.length) } }, 0)
+  }
+
+  const replaceAll = () => {
+    if (!matches.length) return
+    if (state.regex) {
+      try {
+        const re = new RegExp(state.findText, state.caseSensitive ? 'g' : 'gi')
+        onChange(value.replace(re, state.replaceText))
+      } catch {}
+    } else {
+      const esc = state.replaceText.replace(/\$/g, '$$$$')
+      const re = new RegExp(state.findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), state.caseSensitive ? 'g' : 'gi')
+      onChange(value.replace(re, esc))
+    }
+    setActive(0)
+  }
+
+  if (!state.visible) return null
+
+  return <div className="find-replace-bar">
+    <div className="find-row">
+      <Search size={13} className="find-glyph" />
+      <input className="find-input" autoFocus value={state.findText} onChange={e => setState({ ...state, findText: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); reveal(e.shiftKey ? active - 1 : active + 1) } else if (e.key === 'Escape') setState({ ...state, visible: false }) }} placeholder="Find" spellCheck={false} aria-label="Find" />
+      <span className="find-count">{state.findText ? `${matches.length ? ((active % matches.length + matches.length) % matches.length) + 1 : 0}/${matches.length}` : ''}</span>
+      <button className="find-icon-btn" onClick={() => reveal(active - 1)} aria-label="Previous match" title="Previous (Shift+Enter)"><ChevronUp size={14} /></button>
+      <button className="find-icon-btn" onClick={() => reveal(active + 1)} aria-label="Next match" title="Next (Enter)"><ChevronDown size={14} /></button>
+      <button className={`find-icon-btn ${state.caseSensitive ? 'on' : ''}`} onClick={() => setState({ ...state, caseSensitive: !state.caseSensitive })} aria-label="Match case" title="Match case"><CaseSensitive size={14} /></button>
+      <button className={`find-icon-btn ${state.regex ? 'on' : ''}`} onClick={() => setState({ ...state, regex: !state.regex })} aria-label="Regular expression" title="Regular expression"><Regex size={14} /></button>
+      <button className="find-icon-btn" onClick={() => setState({ ...state, visible: false })} aria-label="Close find" title="Close (Esc)"><X size={14} /></button>
+    </div>
+    <div className="find-row">
+      <Replace size={13} className="find-glyph" />
+      <input className="find-input" value={state.replaceText} onChange={e => setState({ ...state, replaceText: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); replaceCurrent() } else if (e.key === 'Escape') setState({ ...state, visible: false }) }} placeholder="Replace with" spellCheck={false} aria-label="Replace with" />
+      <button className="find-text-btn" onClick={replaceCurrent} disabled={!matches.length}>Replace</button>
+      <button className="find-text-btn" onClick={replaceAll} disabled={!matches.length}>Replace all</button>
+    </div>
+  </div>
+}
+
 const GROUPS: { name: string; ids: Tool[] }[] = [
-  { name: 'FORMAT', ids: ['formatter', 'base64', 'sql', 'plsql'] },
+  { name: 'FORMAT', ids: ['formatter', 'base64', 'sql'] },
   { name: 'TEXT', ids: ['regex', 'clean', 'timestamp', 'compare'] },
   { name: 'COMPARE', ids: ['jsondiff', 'xmldiff'] },
   { name: 'CONVERT', ids: ['j2ts', 'j2java', 'j2kt', 'yaml', 'jsonxml', 'csv'] },
@@ -843,8 +942,7 @@ const ALL_TOOLS: Tool[] = GROUPS.flatMap(g => g.ids)
 const TOOLS: Record<Tool, { label: string; title: string; desc: string; icon: ReactNode }> = {
   formatter: { label: 'JSON/XML', title: 'JSON & XML Formatter', desc: 'Beautify, minify and inspect JSON or XML', icon: <Code2 size={16} /> },
   base64: { label: 'Base64', title: 'Base64 Encoder / Decoder', desc: 'Encode or decode text to and from Base64', icon: <Binary size={16} /> },
-  sql: { label: 'SQL', title: 'SQL Formatter', desc: 'Beautify and syntax-highlight SQL queries', icon: <Database size={16} /> },
-  plsql: { label: 'PL/SQL', title: 'PL/SQL Formatter', desc: 'Beautify and syntax-highlight PL/SQL blocks', icon: <Database size={16} /> },
+  sql: { label: 'SQL', title: 'SQL / PL/SQL Formatter', desc: 'Beautify and syntax-highlight SQL and PL/SQL', icon: <Database size={16} /> },
   regex: { label: 'Regex', title: 'Regex Tester', desc: 'Test and debug regular expressions live', icon: <Braces size={16} /> },
   clean: { label: 'Clean text', title: 'Clean Text', desc: 'Remove whitespace and newlines from text', icon: <Scissors size={16} /> },
   timestamp: { label: 'Timestamp', title: 'Timestamp Generator', desc: 'Generate timestamps in common formats', icon: <Clock size={16} /> },
@@ -870,7 +968,9 @@ const TOOLS: Record<Tool, { label: string; title: string; desc: string; icon: Re
 }
 
 function AppTool({ theme, setTheme, tool, onSelectTool, children }: { theme: 'light' | 'dark'; setTheme: (value: 'light' | 'dark') => void; tool: Tool; onSelectTool: (value: Tool) => void; children: ReactNode }) {
-  return <main className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}><nav className="topbar"><div className="brand"><span className="brand-mark">T</span><span>Tinker</span></div><div className="topbar-tools"><span className="tool-name">{TOOLS[tool].label}</span><span className="topbar-divider" /><button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><div className="avatar">D</div></div></nav><div className="workspace"><aside className="sidebar"><div className="sidebar-label">TOOLS</div>{GROUPS.map(group => <div key={group.name}><div className="sidebar-label group-label">{group.name}</div>{group.ids.map(id => <button key={id} className={`tool-item ${tool === id ? 'active' : ''}`} onClick={() => onSelectTool(id)}>{TOOLS[id].icon}<span>{TOOLS[id].label}</span></button>)}</div>)}</aside><section className="content">{children}</section></div></main>
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
+  const toggleGroup = (name: string) => setCollapsedGroups(prev => prev.includes(name) ? prev.filter(g => g !== name) : [...prev, name])
+  return <main className={`app-shell ${theme === 'light' ? 'theme-light' : 'theme-dark'}`}><nav className="topbar"><div className="brand"><span className="brand-mark">T</span><span>Tinker</span></div><div className="topbar-tools"><span className="tool-name">{TOOLS[tool].label}</span><span className="topbar-divider" /><button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><div className="avatar">D</div></div></nav><div className="workspace"><aside className="sidebar"><div className="sidebar-label">TOOLS</div>{GROUPS.map(group => <div key={group.name} className="sidebar-group"><button className="sidebar-group-toggle" onClick={() => toggleGroup(group.name)} aria-expanded={!collapsedGroups.includes(group.name)}><span>{group.name}</span>{collapsedGroups.includes(group.name) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button>{!collapsedGroups.includes(group.name) && group.ids.map(id => <button key={id} className={`tool-item ${tool === id ? 'active' : ''}`} onClick={() => onSelectTool(id)}>{TOOLS[id].icon}<span>{TOOLS[id].label}</span></button>)}</div>)}</aside><section className="content">{children}</section></div></main>
 }
 
 function ToolHead({ title, desc, children }: { title: string; desc: string; children?: ReactNode }) {
@@ -886,8 +986,10 @@ function ToolBar({ action, icon, onAction, clear, onClear, output, children }: {
   return <div className="toolbar">{onAction && action && <button className="primary-button" onClick={onAction}>{icon}{action}</button>}{children}{clear && onClear && <button className="outline-button" onClick={onClear}><RotateCcw size={14} /> {clear}</button>}<div className="toolbar-spacer" /><button className="outline-button" onClick={doCopy}>{copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy'}</button><button className="outline-button" onClick={doDownload}><Download size={14} /> Download</button><span className="meta-text">Lines: {lines} · Size: {bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`}</span></div>
 }
 
-function IoPanel({ icon, title, label, value, onChange, onClear, placeholder, actions }: { icon: ReactNode; title: string; label?: string; value: string; onChange: (v: string) => void; onClear: () => void; placeholder?: string; actions?: ReactNode }) {
-  return <section className="panel"><div className="panel-head"><div className="panel-title">{icon}<h2>{title}</h2>{label && <span className="format-label">{label}</span>}</div><div className="panel-actions">{actions}<button className="quiet-button" onClick={onClear} aria-label={`Clear ${title}`}><RotateCcw size={14} /></button></div></div><div className="plain-editor-wrap"><textarea className="plain-editor" spellCheck={false} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} aria-label={title} /></div><div className="panel-foot"><span className="meta-text">{value.length} characters</span></div></section>
+function IoPanel({ icon, title, label, value, onChange, onClear, placeholder, actions, ariaLabel }: { icon: ReactNode; title: string; label?: string; value: string; onChange: (v: string) => void; onClear: () => void; placeholder?: string; actions?: ReactNode; ariaLabel?: string }) {
+  const [findState, setFindState] = useState<FindReplaceState>({ findText: '', replaceText: '', caseSensitive: false, regex: false, visible: false })
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  return <section className="panel"><div className="panel-head"><div className="panel-title">{icon}<h2>{title}</h2>{label && <span className="format-label">{label}</span>}</div><div className="panel-actions">{actions}<button className="quiet-button" onClick={() => setFindState(s => ({ ...s, visible: !s.visible }))} aria-label="Find and replace" title="Find (Ctrl+F)"><Search size={14} /></button><button className="quiet-button" onClick={onClear} aria-label={`Clear ${title}`}><RotateCcw size={14} /></button></div></div><div className="plain-editor-wrap" style={{ position: 'relative' }}><FindReplaceBar value={value} onChange={onChange} state={findState} setState={setFindState} getTarget={() => textareaRef.current} lineHeight={20} /><textarea ref={textareaRef} className="plain-editor" spellCheck={false} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} aria-label={ariaLabel || title} /></div><div className="panel-foot"><span className="meta-text">{value.length} characters</span></div></section>
 }
 
 function OutPanel({ icon, title, label, foot, actions, children, style, className }: { icon: ReactNode; title: string; label?: string; foot?: ReactNode; actions?: ReactNode; children: ReactNode; style?: CSSProperties; className?: string }) {
@@ -935,8 +1037,9 @@ export default function Home() {
   const [tsCopied, setTsCopied] = useState(false)
   const [sqlInput, setSqlInput] = usePersist('tinker:sqlinput', sampleSql)
   const [sqlCopied, setSqlCopied] = useState(false)
-  const [plSqlInput, setPlSqlInput] = usePersist('tinker:plsqlinput', samplePlsql)
-  const [plCopied, setPlCopied] = useState(false)
+  const [sqlDialect, setSqlDialect] = usePersist<'sql' | 'plsql'>('tinker:sqldialect', 'sql')
+  const [formatterFind, setFormatterFind] = useState<FindReplaceState>({ findText: '', replaceText: '', caseSensitive: false, regex: false, visible: false })
+  const formatterRef = useRef<HTMLTextAreaElement>(null)
   const [jdA, setJdA] = usePersist('tinker:jda', sampleJson)
   const [jdB, setJdB] = usePersist('tinker:jdb', sampleJsonB)
   const [xdA, setXdA] = usePersist('tinker:xda', sampleXml)
@@ -1039,8 +1142,7 @@ export default function Home() {
   const tsValue = useMemo(() => formatTimestamp(tsDateObj, tsPattern), [tsDateObj, tsPattern])
   const stampNow = () => { const d = new Date(); setTsDate(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`); setTsTime(`${pad2(d.getHours())}:${pad2(d.getMinutes())}`) }
   const copyTs = async () => { await navigator.clipboard?.writeText(tsValue); setTsCopied(true); setTimeout(() => setTsCopied(false), 1500) }
-  const sqlLines = useMemo(() => highlightSqlLines(sqlInput, false), [sqlInput])
-  const plSqlLines = useMemo(() => highlightSqlLines(plSqlInput, true), [plSqlInput])
+  const sqlLines = useMemo(() => highlightSqlLines(sqlInput, sqlDialect === 'plsql'), [sqlInput, sqlDialect])
   const tsOut = useMemo(() => { try { return { value: jsonToTs(j2tsIn), error: '' } } catch (e) { return { value: '', error: e instanceof Error ? e.message : 'Invalid JSON' } } }, [j2tsIn])
   const javaOut = useMemo(() => { try { return { value: jsonToJava(j2javaIn), error: '' } } catch (e) { return { value: '', error: e instanceof Error ? e.message : 'Invalid JSON' } } }, [j2javaIn])
   const ktOut = useMemo(() => { try { return { value: jsonToKt(j2ktIn), error: '' } } catch (e) { return { value: '', error: e instanceof Error ? e.message : 'Invalid JSON' } } }, [j2ktIn])
@@ -1062,16 +1164,13 @@ export default function Home() {
   const [hmacOut, setHmacOut] = useState('')
   useEffect(() => { if (!hmacInput || !hmacSecret) { setHmacOut(''); return } let live = true; hmacText(hmacInput, hmacSecret, hmacAlgo).then(v => { if (live) setHmacOut(v) }).catch(() => { if (live) setHmacOut('') }); return () => { live = false } }, [hmacInput, hmacSecret, hmacAlgo])
 
-  const renderSqlTool = (plsql: boolean) => {
-    const val = plsql ? plSqlInput : sqlInput
-    const update = (v: string) => plsql ? setPlSqlInput(v) : setSqlInput(v)
-    const copiedFlag = plsql ? plCopied : sqlCopied
-    const setCopiedFlag = plsql ? setPlCopied : setSqlCopied
-    const copySql = async () => { await navigator.clipboard?.writeText(val); setCopiedFlag(true); setTimeout(() => setCopiedFlag(false), 1500) }
+  const renderSqlTool = () => {
+    const [sqlFind, setSqlFind] = useState<FindReplaceState>({ findText: '', replaceText: '', caseSensitive: false, regex: false, visible: false })
+    const sqlRef = useRef<HTMLTextAreaElement>(null)
+    const copySql = async () => { await navigator.clipboard?.writeText(sqlInput); setSqlCopied(true); setTimeout(() => setSqlCopied(false), 1500) }
     const syncScroll = (e: UIEvent<HTMLTextAreaElement>) => { const t = e.currentTarget; const overlay = t.previousElementSibling as HTMLElement | null; const gutter = t.parentElement?.previousElementSibling as HTMLElement | null; if (overlay) { overlay.scrollTop = t.scrollTop; overlay.scrollLeft = t.scrollLeft } if (gutter) gutter.scrollTop = t.scrollTop }
-    const rendered = (plsql ? plSqlLines : sqlLines).map((html, index) => <div key={index} className="code-line" dangerouslySetInnerHTML={{ __html: html }} />)
-    const meta = TOOLS[plsql ? 'plsql' : 'sql']
-    return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={meta.title} desc={meta.desc} /><div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Database size={16} /><h2>Editor</h2><span className="format-label">{plsql ? 'PL/SQL' : 'SQL'}</span></div><div className="panel-actions"><button className="quiet-button" onClick={() => update('')} aria-label="Clear editor"><RotateCcw size={14} /></button></div></div><div className="editor-wrap"><div className="line-numbers">{val.split('\n').map((_, i) => <span key={i}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{rendered}</pre><textarea spellCheck={false} value={val} onChange={e => update(e.target.value)} onScroll={syncScroll} className="editor" wrap="soft" aria-label={plsql ? 'PL/SQL editor' : 'SQL editor'} /></div></div><div className="panel-foot"><span className="meta-text">{val.length} characters</span></div></section><section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Check size={16} /><h2>Tokenized</h2></div><div className="panel-actions"><button className="quiet-button" onClick={copySql}>{copiedFlag ? <Check size={14} /> : <Copy size={14} />} {copiedFlag ? 'Copied' : 'Copy'}</button></div></div><div className="inspector-body">{val ? <pre className="raw-view" dangerouslySetInnerHTML={{ __html: (plsql ? plSqlLines : sqlLines).join('\n') }} /> : <div className="empty-state">Enter a SQL query</div>}</div><div className="panel-foot inspector-status"><span className="status-dot" /><span className="meta-text">{plsql ? 'PL/SQL' : 'SQL'} syntax</span></div></section></div><ToolBar action="Beautify" icon={<Wand2 size={14} />} onAction={() => update(formatSql(val, plsql))} clear="Clear" onClear={() => update('')} output={val}><button className="outline-button" onClick={() => update(val.replace(/\s+/g, ' ').trim())}><Minimize2 size={14} /> Minify</button></ToolBar></AppTool>
+    const rendered = sqlLines.map((html, index) => <div key={index} className="code-line" dangerouslySetInnerHTML={{ __html: html }} />)
+    return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title="SQL / PL/SQL Formatter" desc="Beautify and syntax-highlight SQL and PL/SQL" /><div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Database size={16} /><h2>Editor</h2><span className="format-label">{sqlDialect === 'plsql' ? 'PL/SQL' : 'SQL'}</span></div><div className="panel-actions"><button className="quiet-button" onClick={() => setSqlFind(s => ({ ...s, visible: !s.visible }))} aria-label="Find and replace" title="Find (Ctrl+F)"><Search size={14} /></button><div className="format-switch"><button className={sqlDialect === 'sql' ? 'selected' : ''} onClick={() => setSqlDialect('sql')}>SQL</button><button className={sqlDialect === 'plsql' ? 'selected' : ''} onClick={() => setSqlDialect('plsql')}>PL/SQL</button></div><button className="quiet-button" onClick={() => setSqlInput('')} aria-label="Clear editor"><RotateCcw size={14} /></button></div></div><div className="editor-wrap" style={{ position: 'relative' }}><FindReplaceBar value={sqlInput} onChange={setSqlInput} state={sqlFind} setState={setSqlFind} getTarget={() => sqlRef.current} lineHeight={20} /><div className="line-numbers">{sqlInput.split('\n').map((_, i) => <span key={i}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{rendered}</pre><textarea ref={sqlRef} spellCheck={false} value={sqlInput} onChange={e => setSqlInput(e.target.value)} onScroll={syncScroll} className="editor" wrap="soft" aria-label="SQL editor" /></div></div><div className="panel-foot"><span className="meta-text">{sqlInput.length} characters</span></div></section><section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Check size={16} /><h2>Tokenized</h2></div><div className="panel-actions"><button className="quiet-button" onClick={copySql}>{sqlCopied ? <Check size={14} /> : <Copy size={14} />} {sqlCopied ? 'Copied' : 'Copy'}</button></div></div><div className="inspector-body">{sqlInput ? <pre className="raw-view" dangerouslySetInnerHTML={{ __html: sqlLines.join('\n') }} /> : <div className="empty-state">Enter a SQL query</div>}</div><div className="panel-foot inspector-status"><span className="status-dot" /><span className="meta-text">{sqlDialect === 'plsql' ? 'PL/SQL' : 'SQL'} syntax</span></div></section></div><ToolBar action="Beautify" icon={<Wand2 size={14} />} onAction={() => setSqlInput(formatSql(sqlInput, sqlDialect === 'plsql'))} clear="Clear" onClear={() => setSqlInput('')} output={sqlInput}><button className="outline-button" onClick={() => setSqlInput(sqlInput.replace(/\s+/g, ' ').trim())}><Minimize2 size={14} /> Minify</button></ToolBar></AppTool>
   }
 
   const renderCompareTool = (a: string, setA: (v: string) => void, b: string, setB: (v: string) => void, equal: boolean, lenA: number, lenB: number, title: string, desc: string, language: 'plaintext' | 'json' | 'xml', fmtA: string, fmtB: string) => {
@@ -1105,7 +1204,6 @@ export default function Home() {
   if (tool === 'uuid') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={TOOLS.uuid.title} desc={TOOLS.uuid.desc} /><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><Dices size={16} /><h2>Settings</h2></div></div><div className="result-body"><div className="section-label">COUNT</div><select className="plain-input" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }} value={uuidCount} onChange={event => setUuidCount(Number(event.target.value))}>{[...Array(12)].map((_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></div></section><OutPanel icon={<Dices size={16} />} title="Generated UUIDs"><pre className="raw-view">{uuidOut}</pre></OutPanel></div><ToolBar action="Regenerate" icon={<Wand2 size={14} />} onAction={() => setUuidTick(t => t + 1)} output={uuidOut} /></AppTool>
   if (tool === 'randstr') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={TOOLS.randstr.title} desc={TOOLS.randstr.desc} /><div className="panels"><section className="panel"><div className="panel-head"><div className="panel-title"><Dices size={16} /><h2>Settings</h2></div></div><div className="result-body"><div className="section-label">LENGTH</div><input className="plain-input" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 8 }} type="number" min={1} max={256} value={rsLength} onChange={event => setRsLength(event.target.value)} aria-label="Length" /><div className="section-label">COUNT</div><input className="plain-input" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 6 }} type="number" min={1} max={50} value={rsCount} onChange={event => setRsCount(event.target.value)} aria-label="Count" /><div className="flag-row">{RS_SETS.map(set => <button key={set.id} className={`flag-button ${rsOpts.includes(set.id) ? 'on' : ''}`} onClick={() => setRsOpts(prev => prev.includes(set.id) ? prev.split(',').filter(x => x !== set.id).join(',') : [prev, set.id].filter(Boolean).join(','))}>{set.label}</button>)}</div></div></section><OutPanel icon={<Dices size={16} />} title="Random strings"><pre className="raw-view">{rndOut}</pre></OutPanel></div><ToolBar action="Regenerate" icon={<Wand2 size={14} />} onAction={() => setRsTick(t => t + 1)} output={rndOut} /></AppTool>
   if (tool === 'mock') return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={TOOLS.mock.title} desc={TOOLS.mock.desc} /><div className="panels"><IoPanel icon={<Boxes size={16} />} title="Schema" value={mockIn} onChange={setMockIn} onClear={() => setMockIn('')} placeholder='{"name": "@name"}' /><OutPanel icon={<Boxes size={16} />} title="Generated JSON">{mockOut ? <pre className="raw-view">{mockOut}</pre> : <div className="empty-state">Invalid schema</div>}</OutPanel></div><ToolBar action="Generate" icon={<Wand2 size={14} />} onAction={genMock} output={mockOut} /></AppTool>
-  if (tool === 'sql') return renderSqlTool(false)
-  if (tool === 'plsql') return renderSqlTool(true)
-  return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={TOOLS.formatter.title} desc={TOOLS.formatter.desc} /><div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16} /><h2>Editor</h2><span className="format-label">{format}</span></div><div className="panel-actions"><div className="format-switch"><button className={format === 'JSON' ? 'selected' : ''} onClick={() => setFormat('JSON')}><FileJson size={15} /> JSON</button><button className={format === 'XML' ? 'selected' : ''} onClick={() => setFormat('XML')}><FileCode2 size={15} /> XML</button></div><button className="quiet-button" onClick={() => setInput('')} aria-label="Clear editor"><RotateCcw size={14} /></button></div></div><div className="editor-wrap"><div className="line-numbers">{lines.map((_, i) => <span key={i} className={diagnostic?.line === i + 1 ? 'number-error' : ''}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{editorLines}</pre><textarea spellCheck={false} value={input} onChange={e => setInput(e.target.value)} onScroll={e => { const t = e.currentTarget; const overlay = t.previousElementSibling as HTMLElement | null; const gutter = t.parentElement?.previousElementSibling as HTMLElement | null; if (overlay) { overlay.scrollTop = t.scrollTop; overlay.scrollLeft = t.scrollLeft } if (gutter) gutter.scrollTop = t.scrollTop }} className="editor" wrap="soft" aria-label={`${format} editor`} /></div></div><div className="panel-foot"><span className="meta-text">{input.length} characters</span>{diagnostic && <span className="error-inline">Line {diagnostic.line}, col {diagnostic.column}</span>}</div></section><section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16} /><h2>Inspector</h2></div></div><div className="tabs"><button className={activeTab === 'tree' ? 'active' : ''} onClick={() => setActiveTab('tree')}>Tree</button><button className={activeTab === 'raw' ? 'active' : ''} onClick={() => setActiveTab('raw')}>Raw</button></div><div className="inspector-body">{diagnostic ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16} /></div><div><strong>Unable to parse {format}</strong><p>{diagnostic.message}</p><button onClick={() => { setActiveTab('raw'); goToLine(diagnostic.line, diagnostic.column) }}>Go to line {diagnostic.line}<span>:{diagnostic.column}</span></button></div></div> : activeTab === 'tree' ? treeRoot ? <TreeNode name={treeRoot.name} value={treeRoot.value} /> : <div className="empty-state">Enter a valid {format} payload</div> : <pre className="raw-view">{input}</pre>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${diagnostic ? 'error' : ''}`} /><span className="meta-text">{diagnostic ? `Invalid ${format}` : `Valid ${format}`}</span></div></section></div><ToolBar action="Beautify" icon={<Wand2 size={14} />} onAction={pretty} clear="Clear" onClear={() => setInput('')} output={input}><button className="outline-button" onClick={minify}><Minimize2 size={14} /> Minify</button></ToolBar></AppTool>
+  if (tool === 'sql') return renderSqlTool()
+  return <AppTool theme={theme} setTheme={setTheme} tool={tool} onSelectTool={setTool}><ToolHead title={TOOLS.formatter.title} desc={TOOLS.formatter.desc} /><div className="panels"><section className="panel editor-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16} /><h2>Editor</h2><span className="format-label">{format}</span></div><div className="panel-actions"><button className="quiet-button" onClick={() => setFormatterFind(s => ({ ...s, visible: !s.visible }))} aria-label="Find and replace" title="Find (Ctrl+F)"><Search size={14} /></button><div className="format-switch"><button className={format === 'JSON' ? 'selected' : ''} onClick={() => setFormat('JSON')}><FileJson size={15} /> JSON</button><button className={format === 'XML' ? 'selected' : ''} onClick={() => setFormat('XML')}><FileCode2 size={15} /> XML</button></div><button className="quiet-button" onClick={() => setInput('')} aria-label="Clear editor"><RotateCcw size={14} /></button></div></div><div className="editor-wrap" style={{ position: 'relative' }}><FindReplaceBar value={input} onChange={setInput} state={formatterFind} setState={setFormatterFind} getTarget={() => formatterRef.current} lineHeight={20} /><div className="line-numbers">{lines.map((_, i) => <span key={i} className={diagnostic?.line === i + 1 ? 'number-error' : ''}>{String(i + 1).padStart(2, '0')}</span>)}</div><div className="code-editor"><pre aria-hidden="true">{editorLines}</pre><textarea ref={formatterRef} spellCheck={false} value={input} onChange={e => setInput(e.target.value)} onScroll={e => { const t = e.currentTarget; const overlay = t.previousElementSibling as HTMLElement | null; const gutter = t.parentElement?.previousElementSibling as HTMLElement | null; if (overlay) { overlay.scrollTop = t.scrollTop; overlay.scrollLeft = t.scrollLeft } if (gutter) gutter.scrollTop = t.scrollTop }} className="editor" wrap="soft" aria-label={`${format} editor`} /></div></div><div className="panel-foot"><span className="meta-text">{input.length} characters</span>{diagnostic && <span className="error-inline">Line {diagnostic.line}, col {diagnostic.column}</span>}</div></section><section className="panel inspector-panel"><div className="panel-head"><div className="panel-title"><Code2 size={16} /><h2>Inspector</h2></div></div><div className="tabs"><button className={activeTab === 'tree' ? 'active' : ''} onClick={() => setActiveTab('tree')}>Tree</button><button className={activeTab === 'raw' ? 'active' : ''} onClick={() => setActiveTab('raw')}>Raw</button></div><div className="inspector-body">{diagnostic ? <div className="diagnostic"><div className="diagnostic-icon"><AlertTriangle size={16} /></div><div><strong>Unable to parse {format}</strong><p>{diagnostic.message}</p><button onClick={() => { setActiveTab('raw'); goToLine(diagnostic.line, diagnostic.column) }}>Go to line {diagnostic.line}<span>:{diagnostic.column}</span></button></div></div> : activeTab === 'tree' ? treeRoot ? <TreeNode name={treeRoot.name} value={treeRoot.value} /> : <div className="empty-state">Enter a valid {format} payload</div> : <pre className="raw-view">{input}</pre>}</div><div className="panel-foot inspector-status"><span className={`status-dot ${diagnostic ? 'error' : ''}`} /><span className="meta-text">{diagnostic ? `Invalid ${format}` : `Valid ${format}`}</span></div></section></div><ToolBar action="Beautify" icon={<Wand2 size={14} />} onAction={pretty} clear="Clear" onClear={() => setInput('')} output={input}><button className="outline-button" onClick={minify}><Minimize2 size={14} /> Minify</button></ToolBar></AppTool>
 }
